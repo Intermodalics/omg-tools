@@ -19,7 +19,7 @@
 
 from ..basics.optilayer import OptiChild
 from ..basics.spline import BSplineBasis
-from ..execution.plotlayer import PlotLayer
+from ..execution.plotlayer import PlotLayer, mix_with_white
 from obstacle import Obstacle
 from casadi import inf
 import numpy as np
@@ -291,16 +291,16 @@ class Environment(OptiChild, PlotLayer):
         self.update_plots()
 
     def draw(self, t=-1):
-        draw = []
-        for obstacle in self.obstacles:
-            draw.extend(obstacle.draw(t))
+        surfaces, lines = [], []
         if self.room['draw']:
-            roomPoints = []
-            for point in self.room['shape'].draw():
-                roomPoints.append(np.array([point[0]+self.room['position'][0],
-                                            point[1]+self.room['position'][1]]))
-            draw.extend(roomPoints)
-        return draw
+            s, l = self.room['shape'].draw()
+            surfaces += s
+            lines += l
+        for obstacle in self.obstacles:
+            s, l = obstacle.draw(t)
+            surfaces += s
+            lines += l
+        return surfaces, lines
 
     def get_canvas_limits(self):
         limits = self.room['shape'].get_canvas_limits()
@@ -311,22 +311,27 @@ class Environment(OptiChild, PlotLayer):
     # ========================================================================
 
     def init_plot(self, argument, **kwargs):
-        lines = [{'color': 'black', 'linewidth': 1.2} for _ in self.draw()]
+        s, l = self.draw()
+        gray = [60./255., 61./255., 64./255.]
+        surfaces = [{'facecolor': mix_with_white(gray, 50), 'edgecolor': 'black', 'linewidth': 1.2} for _ in s]
+        lines = [{'color': 'black', 'linewidth': 1.2} for _ in l]
+        if self.room['draw']:
+            s_, l_ = self.room['shape'].draw()
+            for k, _ in enumerate(s_):
+                surfaces[k]['facecolor'] = mix_with_white(gray, 90)
         if 'limits' in kwargs:
             limits = kwargs['limits']
         else:
             limits = self.get_canvas_limits()
         labels = ['' for k in range(self.n_dim)]
         if self.n_dim == 2:
-            return [[{'labels': labels, 'lines': lines, 'aspect_equal': True,
+            return [[{'labels': labels,'surfaces': surfaces, 'lines': lines, 'aspect_equal': True,
                       'xlim': limits[0], 'ylim': limits[1]}]]
         else:
-            return [[{'labels': labels, 'lines': lines, 'aspect_equal': True,
+            return [[{'labels': labels, 'surfaces': surfaces, 'lines': lines, 'aspect_equal': True,
                       'xlim': limits[0], 'ylim': limits[1], 'zlim': limits[2],
                       'projection': '3d'}]]
 
     def update_plot(self, argument, t, **kwargs):
-        lines = []
-        for l in self.draw(t):
-            lines.append([l[k, :] for k in range(self.n_dim)])
-        return [[lines]]
+        s, l = self.draw(t)
+        return [[{'surfaces': s, 'lines': l}]]

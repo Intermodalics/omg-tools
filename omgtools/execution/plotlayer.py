@@ -17,6 +17,8 @@
 # License along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
+import warnings
+warnings.filterwarnings("ignore")
 import os
 import shutil
 import matplotlib
@@ -26,6 +28,8 @@ from matplotlib import animation
 from mpl_toolkits.mplot3d import Axes3D, proj3d
 import numpy as np
 import warnings
+from matplotlib.collections import PolyCollection, LineCollection
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
 
 # def orthogonal_proj(zfront, zback):
 #     a = (zfront+zback)/(zfront-zback)
@@ -52,8 +56,14 @@ def _init_axis_2d(axis, info):
         axis.set_xlim(info['xlim'][0], info['xlim'][1])
     if 'ylim' in info and info['ylim'] is not None:
         axis.set_ylim(info['ylim'][0], info['ylim'][1])
-    for line in info['lines']:
-        axis.plot([], [], **line)[0]
+    if 'lines' in info:
+        for line in info['lines']:
+            axis.plot([], [], zorder=0, **line)[0]
+    if 'surfaces' in info:
+        for surf in info['surfaces']:
+            col = PolyCollection([], **surf)
+            col.set_zorder(1)
+            axis.add_collection(col)
 
 
 def _init_axis_3d(axis, info, view=None):
@@ -69,13 +79,22 @@ def _init_axis_3d(axis, info, view=None):
     if view is not None:
         elevation, azimuth = view
         axis.view_init(elev=elevation, azim=azimuth)
-    for line in info['lines']:
-        axis.plot([], [], [], **line)
+    if 'lines' in info:
+        for line in info['lines']:
+            axis.plot([], [], **line)[0]
+    if 'surfaces' in info:
+        for surf in info['surfaces']:
+            col = Poly3DCollection([], **surf)
+            axis.add_collection3d(col)
 
 
 def _update_axis_2d(axis, info, data):
-    for p, dat in enumerate(data):
-        axis.lines[p].set_data(dat[0].ravel(), dat[1].ravel())
+    if 'lines' in data:
+        for p, dat in enumerate(data['lines']):
+            axis.lines[p].set_data(dat[0, :].ravel(), dat[1, :].ravel())
+    if 'surfaces' in data:
+        for p, dat in enumerate(data['surfaces']):
+            axis.collections[p].set_verts([dat.T.tolist()])
     axis.relim()
     scalex = ('xlim' not in info or info['xlim'] is None)
     scaley = ('ylim' not in info or info['ylim'] is None)
@@ -83,9 +102,13 @@ def _update_axis_2d(axis, info, data):
 
 
 def _update_axis_3d(axis, info, data):
-    for p, dat in enumerate(data):
-        axis.lines[p].set_data(dat[0].ravel(), dat[1].ravel())
-        axis.lines[p].set_3d_properties(dat[2].ravel())
+    if 'lines' in data:
+        for p, dat in enumerate(data['lines']):
+            axis.lines[p].set_data(dat[0, :].ravel(), dat[1, :].ravel())
+            axis.lines[p].set_3d_properties(dat[2, :].ravel())
+    if 'surfaces' in data:
+        for p, dat in enumerate(data['surfaces']):
+            axis.collections[p].set_verts([dat.T.tolist()])
     axis.relim()
     scalex = ('xlim' not in info or info['xlim'] is None)
     scaley = ('ylim' not in info or info['ylim'] is None)
@@ -174,7 +197,8 @@ class PlotLayer(object):
     # ========================================================================
 
     def plot(self, argument=None, **kwargs):
-        plot = {'argument': argument, 'kwargs': kwargs, 'figure': plt.figure()}
+        plot = {'argument': argument, 'kwargs': kwargs}
+        # plot = {'argument': argument, 'kwargs': kwargs, 'figure': plt.figure()}
         self.plots.append(plot)
         if 'time' in kwargs:
             index = self.__class__.simulator.time2index(kwargs['time'])
@@ -193,16 +217,17 @@ class PlotLayer(object):
         if info is None:
             return
         ax_r, ax_c = len(info), len(info[0])
-        figure = plot['figure']
+        if 'view' in kwargs:
+            view = kwargs['view']
+        else:
+            view = None
+        figure = plt.figure()
+        plot['figure'] = figure
         for k in range(ax_r):
             for l in range(ax_c):
                 if 'projection' in info[k][l] and info[k][l]['projection'] == '3d':
                     axis = figure.add_subplot(
                         ax_r, ax_c, k*ax_c+l+1, projection='3d')
-                    if 'view' in kwargs:
-                        view = kwargs['view']
-                    else:
-                        view = None
                     _init_axis_3d(axis, info[k][l], view)
                 else:
                     axis = figure.add_subplot(ax_r, ax_c, k*ax_c+l+1)
